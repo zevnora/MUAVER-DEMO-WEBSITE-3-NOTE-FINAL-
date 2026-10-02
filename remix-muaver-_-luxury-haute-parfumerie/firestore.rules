@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Authentication and authorization helper functions
+    function isAuthenticated() {
+      return request.auth != null && (request.auth.token.email != null || request.auth.uid != null);
+    }
+
+    function userEmail() {
+      return request.auth.token.email != null ? request.auth.token.email.lower() : '';
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        userEmail() == 'zevnora.agency@gmail.com' ||
+        userEmail() == 'hellomuaver@gmail.com' ||
+        userEmail() == 'ai.alizaib@gmail.com' ||
+        (userEmail() != '' && exists(/databases/$(database)/documents/admins/$(userEmail()))) ||
+        (request.auth.uid != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid)))
+      );
+    }
+
+    function isOwner() {
+      return isAdmin() && (
+        userEmail() == 'zevnora.agency@gmail.com' ||
+        userEmail() == 'hellomuaver@gmail.com' ||
+        userEmail() == 'ai.alizaib@gmail.com' ||
+        (userEmail() != '' && exists(/databases/$(database)/documents/admins/$(userEmail())) && get(/databases/$(database)/documents/admins/$(userEmail())).data.role == 'owner') ||
+        (request.auth.uid != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid)) && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'owner')
+      );
+    }
+
+    // Admins collection:
+    match /admins/{adminEmail} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (
+        isOwner() || 
+        userEmail() == 'zevnora.agency@gmail.com' ||
+        userEmail() == 'hellomuaver@gmail.com' ||
+        userEmail() == 'ai.alizaib@gmail.com' ||
+        (!exists(/databases/$(database)/documents/settings/security) && userEmail() == adminEmail.lower())
+      );
+      allow update, delete: if isOwner() || userEmail() == 'zevnora.agency@gmail.com' || userEmail() == 'hellomuaver@gmail.com' || userEmail() == 'ai.alizaib@gmail.com';
+    }
+
+    // Settings collection (site configuration, policies, delivery rates, security metadata)
+    match /settings/{document=**} {
+      allow read: if true;
+      allow write, delete: if isAdmin() || (
+        isAuthenticated() && !exists(/databases/$(database)/documents/settings/security)
+      );
+    }
+
+    // Products catalog: Public read, admin-only write & delete
+    match /products/{productId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Categories: Public read, admin-only write & delete
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Hero banners: Public read, admin-only write & delete
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Orders: Public order creation for customers; read/update/delete restricted to admins
+    match /orders/{orderId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Customer inquiries: Public create, admin-only read/manage
+    match /inquiries/{inquiryId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+  }
+}
